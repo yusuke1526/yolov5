@@ -11,6 +11,11 @@ from utils.metrics import bbox_iou
 from utils.torch_utils import is_parallel
 
 
+def soft_cross_entropy(input, target):
+    logprobs = nn.functional.log_softmax(input, dim=1)
+    return  -(target * logprobs).sum() / input.shape[0]
+
+
 def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441
     # return positive, negative label smoothing BCE targets
     return 1.0 - 0.5 * eps, 0.5 * eps
@@ -98,7 +103,8 @@ class ComputeLoss:
 
         # Define criteria
         if use_cross_entropy:
-            CEcls = nn.CrossEntropyLoss()
+            CEcls = soft_cross_entropy
+            print('use cross entropy')
         else:
             CEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
         BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
@@ -254,7 +260,7 @@ class ComputeLoss:
             dists = []
             for ri in y:
                 dists.append(dist(rt, ri))
-            dists = torch.tensor(dists, dtype=torch.float32)
+            dists = torch.tensor(dists).float()
             label = softmax(-dists)
             labels.append(label)
 
