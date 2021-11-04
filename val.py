@@ -32,6 +32,7 @@ from utils.metrics import ap_per_class, ConfusionMatrix
 from utils.plots import output_to_target, plot_images, plot_val_study
 from utils.torch_utils import select_device, time_sync
 from utils.callbacks import Callbacks
+from utils.loss import ComputeLoss
 
 
 def save_one_txt(predn, save_conf, shape, file):
@@ -106,6 +107,7 @@ def run(data,
         plots=True,
         callbacks=Callbacks(),
         compute_loss=None,
+        plot_cls_prob=False,
         ):
     # Initialize/load model and set device
     training = model is not None
@@ -150,6 +152,10 @@ def run(data,
         task = task if task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
         dataloader = create_dataloader(data[task], imgsz, batch_size, gs, single_cls, pad=0.5, rect=True,
                                        prefix=colorstr(f'{task}: '))[0]
+        
+    # Show prob distribution
+    if plot_cls_prob:
+        compute_loss = ComputeLoss(model)
 
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
@@ -223,7 +229,7 @@ def run(data,
             callbacks.run('on_val_image_end', pred, predn, path, names, img[si])
 
         # Plot images
-        if plots and batch_i < 3:
+        if plots:
             f = save_dir / f'val_batch{batch_i}_labels.jpg'  # labels
             Thread(target=plot_images, args=(img, targets, paths, f, names), daemon=True).start()
             f = save_dir / f'val_batch{batch_i}_pred.jpg'  # predictions
@@ -317,6 +323,7 @@ def parse_opt():
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
+    parser.add_argument('--plot-cls-prob', action='store_true', help='plot class probability distribution')
     opt = parser.parse_args()
     opt.data = check_yaml(opt.data)  # check YAML
     opt.save_json |= opt.data.endswith('coco.yaml')
