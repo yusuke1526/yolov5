@@ -91,7 +91,7 @@ class QFocalLoss(nn.Module):
 
 class ComputeLoss:
     # Compute losses
-    def __init__(self, model, autobalance=False, ordinal_cls=False, metric=None, use_softmax=False, use_cross_entropy=False):
+    def __init__(self, model, autobalance=False, ordinal_cls=False, metric=None, use_cross_entropy=False):
         self.sort_obj_iou = False
         device = next(model.parameters()).device  # get model device
         h = model.hyp  # hyperparameters
@@ -122,10 +122,6 @@ class ComputeLoss:
         if ordinal_cls:
             self.metric = metric
             self.create_soft_labels(device=device)
-
-        self.use_softmax = use_softmax
-        if use_softmax:
-            self.softmax = nn.Softmax(dim=1)
 
     def __call__(self, p, targets):  # predictions, targets, model
         device = targets.device
@@ -162,9 +158,6 @@ class ComputeLoss:
                     
                     if self.ordinal_cls:
                         t = self.convert_soft_labels(t)
-
-                    if self.use_softmax:
-                        ps[:, 5:] = self.softmax(ps[:, 5:])
                     
                     lcls += self.CEcls(ps[:, 5:], t)  # BCE
                     # print(ps[:, 5:])
