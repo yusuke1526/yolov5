@@ -265,7 +265,6 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         model,
         ordinal_cls=opt.ordinal_cls,
         metric=opt.metric,
-        use_softmax=opt.use_softmax,
         use_cross_entropy=opt.use_cross_entropy)  # init loss class
     LOGGER.info(f'Image sizes {imgsz} train, {imgsz} val\n'
                 f'Using {train_loader.num_workers} dataloader workers\n'
@@ -473,7 +472,6 @@ def parse_opt(known=False):
     parser.add_argument('--patience', type=int, default=100, help='EarlyStopping patience (epochs without improvement)')
     parser.add_argument('--ordinal-cls', action='store_true', help='train multi-class data as ordinal-class')
     parser.add_argument('--metric', type=str, choices=['L1', 'L2', 'L3', 'SLD'], help='metric function for ordinal classification')
-    parser.add_argument('--use-softmax', action='store_true', help='use softmax')
     parser.add_argument('--use-cross-entropy', action='store_true', help='use cross entropy')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
     
