@@ -5,6 +5,7 @@ Loss functions
 
 import torch
 import torch.nn as nn
+import numpy as np
 
 from utils.metrics import bbox_iou
 from utils.torch_utils import is_parallel
@@ -90,13 +91,16 @@ class QFocalLoss(nn.Module):
 
 class ComputeLoss:
     # Compute losses
-    def __init__(self, model, autobalance=False):
+    def __init__(self, model, autobalance=False, ordinal_cls=False, metric=None, use_softmax=False, use_cross_entropy=False):
         self.sort_obj_iou = False
         device = next(model.parameters()).device  # get model device
         h = model.hyp  # hyperparameters
 
         # Define criteria
-        BCEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
+        if use_cross_entropy:
+            CEcls = nn.CrossEntropyLoss()
+        else:
+            CEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
         BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
 
         # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
@@ -105,14 +109,23 @@ class ComputeLoss:
         # Focal loss
         g = h['fl_gamma']  # focal loss gamma
         if g > 0:
-            BCEcls, BCEobj = FocalLoss(BCEcls, g), FocalLoss(BCEobj, g)
+            CEcls, BCEobj = FocalLoss(CEcls, g), FocalLoss(BCEobj, g)
 
         det = model.module.model[-1] if is_parallel(model) else model.model[-1]  # Detect() module
         self.balance = {3: [4.0, 1.0, 0.4]}.get(det.nl, [4.0, 1.0, 0.25, 0.06, .02])  # P3-P7
         self.ssi = list(det.stride).index(16) if autobalance else 0  # stride 16 index
-        self.BCEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = BCEcls, BCEobj, 1.0, h, autobalance
+        self.CEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = CEcls, BCEobj, 1.0, h, autobalance
         for k in 'na', 'nc', 'nl', 'anchors':
             setattr(self, k, getattr(det, k))
+            
+        self.ordinal_cls = ordinal_cls
+        if ordinal_cls:
+            self.metric = metric
+            self.create_soft_labels(device=device)
+
+        self.use_softmax = use_softmax
+        if use_softmax:
+            self.softmax = nn.Softmax(dim=1)
 
     def __call__(self, p, targets):  # predictions, targets, model
         device = targets.device
@@ -146,7 +159,16 @@ class ComputeLoss:
                 if self.nc > 1:  # cls loss (only if multiple classes)
                     t = torch.full_like(ps[:, 5:], self.cn, device=device)  # targets
                     t[range(n), tcls[i]] = self.cp
-                    lcls += self.BCEcls(ps[:, 5:], t)  # BCE
+                    
+                    if self.ordinal_cls:
+                        t = self.convert_soft_labels(t)
+
+                    if self.use_softmax:
+                        ps[:, 5:] = self.softmax(ps[:, 5:])
+                    
+                    lcls += self.CEcls(ps[:, 5:], t)  # BCE
+                    # print(ps[:, 5:])
+                    # print(t)
 
                 # Append targets to text file
                 # with open('targets.txt', 'a') as file:
@@ -220,3 +242,30 @@ class ComputeLoss:
             tcls.append(c)  # class
 
         return tcls, tbox, indices, anch
+    
+    def create_soft_labels(self, device, cls_num=4):
+        if self.metric == 'L1':
+            dist = lambda x, y: abs(x - y)
+        elif self.metric == 'L2':
+            dist = lambda x, y: (x - y)**2
+        elif self.metric == 'L3':
+            dist = lambda x, y: abs(x - y)**3
+        elif self.metric == 'SLD':
+            dist = lambda x, y: (np.log(x) - np.log(y))**2
+        
+        y = [i+1 for i in range(cls_num)]
+        softmax = nn.Softmax(dim=0)
+        
+        labels = []
+        for rt in y:
+            dists = []
+            for ri in y:
+                dists.append(dist(rt, ri))
+            dists = torch.tensor(dists, dtype=torch.float32)
+            label = softmax(-dists)
+            labels.append(label)
+
+        self.labels = torch.stack(labels).to(device)
+    
+    def convert_soft_labels(self, targets):
+        return self.labels[targets.argmax(dim=1)]

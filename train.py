@@ -261,7 +261,12 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
     scheduler.last_epoch = start_epoch - 1  # do not move
     scaler = amp.GradScaler(enabled=cuda)
     stopper = EarlyStopping(patience=opt.patience)
-    compute_loss = ComputeLoss(model)  # init loss class
+    compute_loss = ComputeLoss(
+        model,
+        ordinal_cls=opt.ordinal_cls,
+        metric=opt.metric,
+        use_softmax=opt.use_softmax,
+        use_cross_entropy=opt.use_cross_entropy)  # init loss class
     LOGGER.info(f'Image sizes {imgsz} train, {imgsz} val\n'
                 f'Using {train_loader.num_workers} dataloader workers\n'
                 f"Logging results to {colorstr('bold', save_dir)}\n"
@@ -466,7 +471,14 @@ def parse_opt(known=False):
     parser.add_argument('--local_rank', type=int, default=-1, help='DDP parameter, do not modify')
     parser.add_argument('--freeze', type=int, default=0, help='Number of layers to freeze. backbone=10, all=24')
     parser.add_argument('--patience', type=int, default=100, help='EarlyStopping patience (epochs without improvement)')
+    parser.add_argument('--ordinal-cls', action='store_true', help='train multi-class data as ordinal-class')
+    parser.add_argument('--metric', type=str, choices=['L1', 'L2', 'L3', 'SLD'], help='metric function for ordinal classification')
+    parser.add_argument('--use-softmax', action='store_true', help='use softmax')
+    parser.add_argument('--use-cross-entropy', action='store_true', help='use cross entropy')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
+    
+    assert (opt.metric is not None) or (not opt.ordinal_cls), 'You should select metric function during ordinal classification.'
+    
     return opt
 
 
