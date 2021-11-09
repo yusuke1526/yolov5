@@ -471,7 +471,7 @@ def parse_opt(known=False):
     parser.add_argument('--freeze', type=int, default=0, help='Number of layers to freeze. backbone=10, all=24')
     parser.add_argument('--patience', type=int, default=100, help='EarlyStopping patience (epochs without improvement)')
     parser.add_argument('--ordinal-cls', action='store_true', help='train multi-class data as ordinal-class')
-    parser.add_argument('--metric', type=str, choices=['L1', 'L2', 'L3', 'SLD'], help='metric function for ordinal classification')
+    parser.add_argument('--metric', type=str, choices=['L1', 'L2', 'custom'], help='metric function for ordinal classification')
     parser.add_argument('--use-cross-entropy', action='store_true', help='use cross entropy')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
     

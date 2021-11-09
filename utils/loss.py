@@ -15,6 +15,41 @@ def soft_cross_entropy(input, target):
     logprobs = nn.functional.log_softmax(input, dim=1)
     return  -(target * logprobs).sum() / input.shape[0]
 
+points_dict = {
+    1: (50 - 0) / 2 / 100,
+    2: ((70 - 50) / 2 + 50) / 100,
+    3: ((90 - 70) / 2 + 70) / 100,
+    4: ((100 - 90) / 2 + 90) / 100,
+}
+
+def custom_metric(x, y):
+    x, y = points_dict[x], points_dict[y]
+    return abs(x - y) * 10
+
+
+def create_soft_labels(metric, device='cpu', cls_num=4):
+    if metric == 'L1':
+        dist = lambda x, y: abs(x - y)
+    elif metric == 'L2':
+        dist = lambda x, y: (x - y)**2
+    elif metric == 'custom':
+        dist = custom_metric
+    
+    y = [i+1 for i in range(cls_num)]
+    softmax = nn.Softmax(dim=0)
+    
+    labels = []
+    for rt in y:
+        dists = []
+        for ri in y:
+            dists.append(dist(rt, ri))
+        dists = torch.tensor(dists).float()
+        label = softmax(-dists)
+        labels.append(label)
+
+    print(labels)
+    return torch.stack(labels).to(device)
+
 
 def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441
     # return positive, negative label smoothing BCE targets
@@ -127,7 +162,7 @@ class ComputeLoss:
         self.ordinal_cls = ordinal_cls
         if ordinal_cls:
             self.metric = metric
-            self.create_soft_labels(device=device)
+            self.labels = create_soft_labels(metric=metric, device=device)
 
     def __call__(self, p, targets):  # predictions, targets, model
         device = targets.device
@@ -163,7 +198,7 @@ class ComputeLoss:
                     t[range(n), tcls[i]] = self.cp
                     
                     if self.ordinal_cls:
-                        t = self.convert_soft_labels(t)
+                        t = self.labels[t.argmax(dim=1)]
                     
                     lcls += self.CEcls(ps[:, 5:], t)  # BCE
                     # print(ps[:, 5:])
@@ -241,30 +276,3 @@ class ComputeLoss:
             tcls.append(c)  # class
 
         return tcls, tbox, indices, anch
-    
-    def create_soft_labels(self, device, cls_num=4):
-        if self.metric == 'L1':
-            dist = lambda x, y: abs(x - y)
-        elif self.metric == 'L2':
-            dist = lambda x, y: (x - y)**2
-        elif self.metric == 'L3':
-            dist = lambda x, y: abs(x - y)**3
-        elif self.metric == 'SLD':
-            dist = lambda x, y: (np.log(x) - np.log(y))**2
-        
-        y = [i+1 for i in range(cls_num)]
-        softmax = nn.Softmax(dim=0)
-        
-        labels = []
-        for rt in y:
-            dists = []
-            for ri in y:
-                dists.append(dist(rt, ri))
-            dists = torch.tensor(dists).float()
-            label = softmax(-dists)
-            labels.append(label)
-
-        self.labels = torch.stack(labels).to(device)
-    
-    def convert_soft_labels(self, targets):
-        return self.labels[targets.argmax(dim=1)]
