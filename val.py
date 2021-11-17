@@ -108,6 +108,10 @@ def run(data,
         callbacks=Callbacks(),
         compute_loss=None,
         plot_cls_prob=False,
+        ordinal_cls=False,
+        metric='',
+        use_cross_entropy=False,
+        single_label=True,
         ):
     # Initialize/load model and set device
     training = model is not None
@@ -155,7 +159,7 @@ def run(data,
         
     # Show prob distribution
     if plot_cls_prob:
-        compute_loss = ComputeLoss(model)
+        compute_loss = ComputeLoss(model, ordinal_cls=ordinal_cls, metric=metric, use_cross_entropy=use_cross_entropy)
 
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
@@ -187,7 +191,7 @@ def run(data,
         targets[:, 2:] *= torch.Tensor([width, height, width, height]).to(device)  # to pixels
         lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
         t3 = time_sync()
-        out = non_max_suppression(out, conf_thres, iou_thres, labels=lb, multi_label=True, agnostic=single_cls)
+        out = non_max_suppression(out, conf_thres, iou_thres, labels=lb, multi_label=(not single_label), agnostic=single_cls)
         dt[2] += time_sync() - t3
 
         # Statistics per image
@@ -324,11 +328,18 @@ def parse_opt():
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--plot-cls-prob', action='store_true', help='plot class probability distribution')
+    parser.add_argument('--ordinal-cls', action='store_true', help='train multi-class data as ordinal-class')
+    parser.add_argument('--metric', type=str, choices=['L1', 'L2', 'custom'], help='metric function for ordinal classification')
+    parser.add_argument('--use-cross-entropy', action='store_true', help='use cross entropy')
+    parser.add_argument('--single-label', action='store_true', help='disable multi label mode')
     opt = parser.parse_args()
     opt.data = check_yaml(opt.data)  # check YAML
     opt.save_json |= opt.data.endswith('coco.yaml')
     opt.save_txt |= opt.save_hybrid
     print_args(FILE.stem, opt)
+
+    assert (opt.metric is not None) or (not opt.ordinal_cls), 'select metric function during ordinal classification.'
+
     return opt
 
 
