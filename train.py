@@ -475,7 +475,7 @@ def parse_opt(known=False):
     parser.add_argument('--use-cross-entropy', action='store_true', help='use cross entropy')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
     
-    assert (opt.metric is not None) or (not opt.ordinal_cls), 'You should select metric function during ordinal classification.'
+    assert (opt.metric is not None) or (not opt.ordinal_cls), 'select metric function during ordinal classification.'
     
     return opt
 
