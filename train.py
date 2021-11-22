@@ -265,7 +265,8 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         model,
         ordinal_cls=opt.ordinal_cls,
         metric=opt.metric,
-        use_cross_entropy=opt.use_cross_entropy)  # init loss class
+        use_cross_entropy=opt.use_cross_entropy,
+        peak=opt.peak)  # init loss class
     LOGGER.info(f'Image sizes {imgsz} train, {imgsz} val\n'
                 f'Using {train_loader.num_workers} dataloader workers\n'
                 f"Logging results to {colorstr('bold', save_dir)}\n"
@@ -473,6 +474,7 @@ def parse_opt(known=False):
     parser.add_argument('--ordinal-cls', action='store_true', help='train multi-class data as ordinal-class')
     parser.add_argument('--metric', type=str, choices=['L1', 'L2', 'custom'], help='metric function for ordinal classification')
     parser.add_argument('--use-cross-entropy', action='store_true', help='use cross entropy')
+    parser.add_argument('--peak', type=float, help='peak value for soft labels')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
     
     assert (opt.metric is not None) or (not opt.ordinal_cls), 'select metric function during ordinal classification.'

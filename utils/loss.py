@@ -27,7 +27,7 @@ def custom_metric(x, y):
     return abs(x - y) * 10
 
 
-def create_soft_labels(metric, device='cpu', cls_num=4):
+def create_soft_labels(metric, device='cpu', cls_num=4, peak=None):
     if metric == 'L1':
         dist = lambda x, y: abs(x - y)
     elif metric == 'L2':
@@ -45,6 +45,8 @@ def create_soft_labels(metric, device='cpu', cls_num=4):
             dists.append(dist(rt, ri))
         dists = torch.tensor(dists).float()
         label = softmax(-dists)
+        if peak:
+            label[rt-1] = peak
         labels.append(label)
 
     print(labels)
@@ -131,7 +133,7 @@ class QFocalLoss(nn.Module):
 
 class ComputeLoss:
     # Compute losses
-    def __init__(self, model, autobalance=False, ordinal_cls=False, metric=None, use_cross_entropy=False):
+    def __init__(self, model, autobalance=False, ordinal_cls=False, metric=None, use_cross_entropy=False, peak=None):
         self.sort_obj_iou = False
         device = next(model.parameters()).device  # get model device
         h = model.hyp  # hyperparameters
@@ -162,7 +164,7 @@ class ComputeLoss:
         self.ordinal_cls = ordinal_cls
         if ordinal_cls:
             self.metric = metric
-            self.labels = create_soft_labels(metric=metric, device=device)
+            self.labels = create_soft_labels(metric=metric, device=device, peak=peak)
 
     def __call__(self, p, targets):  # predictions, targets, model
         device = targets.device
