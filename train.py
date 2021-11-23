@@ -42,7 +42,7 @@ from utils.general import labels_to_class_weights, increment_path, labels_to_ima
     check_file, check_yaml, check_suffix, print_args, print_mutation, set_logging, one_cycle, colorstr, methods
 from utils.downloads import attempt_download
 from utils.loss import ComputeLoss
-from utils.plots import plot_labels, plot_evolve
+from utils.plots import plot_labels, plot_evolve, plot_soft_labels
 from utils.torch_utils import EarlyStopping, ModelEMA, de_parallel, intersect_dicts, select_device, \
     torch_distributed_zero_first
 from utils.loggers.wandb.wandb_utils import check_wandb_resume
@@ -266,13 +266,20 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         ordinal_cls=opt.ordinal_cls,
         metric=opt.metric,
         use_cross_entropy=opt.use_cross_entropy,
-        peak=opt.peak)  # init loss class
+        peak=opt.peak,
+        s=opt.s)  # init loss class
+    # add learnable_labels to optimizer
+    if opt.metric == 'learnable':
+        optimizer.param_groups[0]['params'].append(compute_loss.learnable_vars)
     LOGGER.info(f'Image sizes {imgsz} train, {imgsz} val\n'
                 f'Using {train_loader.num_workers} dataloader workers\n'
                 f"Logging results to {colorstr('bold', save_dir)}\n"
                 f'Starting training for {epochs} epochs...')
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
+
+        if opt.metric == 'learnable':
+            plot_soft_labels(compute_loss.get_soft_labels(), epoch=epoch, save_dir=save_dir)
 
         # Update image weights (optional, single-GPU only)
         if opt.image_weights:
@@ -429,6 +436,8 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         callbacks.run('on_train_end', last, best, plots, epoch)
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}")
 
+    plot_soft_labels(compute_loss.get_soft_labels(), save_dir=save_dir)
+
     torch.cuda.empty_cache()
     return results
 
@@ -472,9 +481,10 @@ def parse_opt(known=False):
     parser.add_argument('--freeze', type=int, default=0, help='Number of layers to freeze. backbone=10, all=24')
     parser.add_argument('--patience', type=int, default=100, help='EarlyStopping patience (epochs without improvement)')
     parser.add_argument('--ordinal-cls', action='store_true', help='train multi-class data as ordinal-class')
-    parser.add_argument('--metric', type=str, choices=['L1', 'L2', 'custom'], help='metric function for ordinal classification')
+    parser.add_argument('--metric', type=str, choices=['L1', 'L2', 'custom', 'learnable'], help='metric function for ordinal classification')
     parser.add_argument('--use-cross-entropy', action='store_true', help='use cross entropy')
     parser.add_argument('--peak', type=float, help='peak value for soft labels')
+    parser.add_argument('-s', type=float, help='s value for learnable soft labels (from 0 to 1)')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
     
     assert (opt.metric is not None) or (not opt.ordinal_cls), 'select metric function during ordinal classification.'

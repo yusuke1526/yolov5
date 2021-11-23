@@ -445,3 +445,15 @@ def feature_visualization(x, module_type, stage, n=32, save_dir=Path('runs/detec
             print(f'Saving {save_dir / f}... ({n}/{channels})')
             plt.savefig(save_dir / f, dpi=300, bbox_inches='tight')
             plt.close()
+
+def plot_soft_labels(labels, epoch='last', save_dir='.'):
+    metric = 'learnable'
+    labels = labels.cpu().detach().numpy()
+    fig = plt.figure()
+    x = [i+1 for i in range(len(labels))]
+    for i, label in enumerate(labels):
+        plt.plot(x, label, label=i+1)
+    plt.legend()
+    plt.title(f'soft labels ({metric}, {epoch} epoch)')
+    plt.xlabel('deterioration rate')
+    plt.savefig(os.path.join(save_dir, f'soft_labels_{metric}_epoch_{epoch}.png'))

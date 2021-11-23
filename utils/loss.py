@@ -133,9 +133,10 @@ class QFocalLoss(nn.Module):
 
 class ComputeLoss:
     # Compute losses
-    def __init__(self, model, autobalance=False, ordinal_cls=False, metric=None, use_cross_entropy=False, peak=None):
+    def __init__(self, model, autobalance=False, ordinal_cls=False, metric=None, use_cross_entropy=False, peak=None, s=None):
         self.sort_obj_iou = False
         device = next(model.parameters()).device  # get model device
+        self.device = device
         h = model.hyp  # hyperparameters
 
         # Define criteria
@@ -164,7 +165,12 @@ class ComputeLoss:
         self.ordinal_cls = ordinal_cls
         if ordinal_cls:
             self.metric = metric
-            self.labels = create_soft_labels(metric=metric, device=device, peak=peak)
+            cls_num = 4
+            if metric == 'learnable':
+                self.learnable_vars = torch.randn(cls_num, cls_num-1, requires_grad=True, device=device)
+                self.s = s
+            else:
+                self.labels = create_soft_labels(metric=metric, device=device, cls_num=cls_num, peak=peak)
 
     def __call__(self, p, targets):  # predictions, targets, model
         device = targets.device
@@ -200,7 +206,8 @@ class ComputeLoss:
                     t[range(n), tcls[i]] = self.cp
                     
                     if self.ordinal_cls:
-                        t = self.labels[t.argmax(dim=1)]
+                        labels = self.get_soft_labels()
+                        t = labels[t.argmax(dim=1)]
                     
                     lcls += self.CEcls(ps[:, 5:], t)  # BCE
                     # print(ps[:, 5:])
@@ -278,3 +285,27 @@ class ComputeLoss:
             tcls.append(c)  # class
 
         return tcls, tbox, indices, anch
+
+    def get_soft_labels(self):
+        if self.metric == 'learnable':
+            return self.get_learnable_labels()
+        return self.labels
+
+    def get_learnable_labels(self):
+        s = self.s
+        labels = nn.Softmax(dim=0)(self.learnable_vars)
+
+        # 対角要素にsを追加する，非対角要素に1-sをかける
+        temp_labels = []
+        for i, label in enumerate(labels):
+            row = torch.cat([
+                label[:i] * (1-s),
+                torch.tensor([s], device=self.device),
+                label[i:] * (1-s)
+            ])
+            temp_labels.append(row)
+        labels = temp_labels
+
+        labels_tensor = torch.stack(labels)
+
+        return labels_tensor.to(self.device)
