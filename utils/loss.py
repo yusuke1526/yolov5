@@ -15,14 +15,25 @@ def soft_cross_entropy(input, target):
     logprobs = nn.functional.log_softmax(input, dim=1)
     return  -(target * logprobs).sum() / input.shape[0]
 
-points_dict = {
-    1: (50 - 0) / 2 / 100,
-    2: ((70 - 50) / 2 + 50) / 100,
-    3: ((90 - 70) / 2 + 70) / 100,
-    4: ((100 - 90) / 2 + 90) / 100,
-}
-
 def custom_metric(x, y):
+    points_dict = {
+        1: (50 - 0) / 2 / 100,
+        2: ((70 - 50) / 2 + 50) / 100,
+        3: ((90 - 70) / 2 + 70) / 100,
+        4: ((100 - 90) / 2 + 90) / 100,
+    }
+    x, y = points_dict[x], points_dict[y]
+    return abs(x - y) * 10
+
+# 動画データセット用
+def custom_metric2(x, y):
+    points_dict = {
+        5: 0 / 2 / 75,
+        4: ((5 - 0) / 2 + 0) / 75,
+        3: ((30 - 5) / 2 + 5) / 75,
+        2: ((50 - 30) / 2 + 30) / 75,
+        1: ((100 - 50) / 2 + 50) / 75,
+    }
     x, y = points_dict[x], points_dict[y]
     return abs(x - y) * 10
 
@@ -33,7 +44,10 @@ def create_soft_labels(metric, device='cpu', cls_num=4, peak=None):
     elif metric == 'L2':
         dist = lambda x, y: (x - y)**2
     elif metric == 'custom':
-        dist = custom_metric
+        if cls_num == 4:
+            dist = custom_metric
+        elif cls_num == 5:
+            dist = custom_metric2
     
     y = [i+1 for i in range(cls_num)]
     softmax = nn.Softmax(dim=0)
@@ -133,41 +147,51 @@ class QFocalLoss(nn.Module):
 
 class ComputeLoss:
     # Compute losses
-    def __init__(self, model, autobalance=False, ordinal_cls=False, metric=None, use_cross_entropy=False, peak=None, s=None):
-        self.sort_obj_iou = False
-        device = next(model.parameters()).device  # get model device
-        self.device = device
-        h = model.hyp  # hyperparameters
+    def __init__(self, model, autobalance=False, ordinal_cls=False, metric=None, use_cross_entropy=False, peak=None, s=None, cls_num=5, label_plot_mode=False):
+        if not label_plot_mode:
+            self.sort_obj_iou = False
+            device = next(model.parameters()).device  # get model device
+            self.device = device
+            h = model.hyp  # hyperparameters
 
-        # Define criteria
-        if use_cross_entropy:
-            CEcls = soft_cross_entropy
-            print('use cross entropy')
+            # Define criteria
+            if use_cross_entropy:
+                CEcls = soft_cross_entropy
+                print('use cross entropy')
+            else:
+                CEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
+            BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
+
+            # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
+            self.cp, self.cn = smooth_BCE(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets
+
+            # Focal loss
+            g = h['fl_gamma']  # focal loss gamma
+            if g > 0:
+                CEcls, BCEobj = FocalLoss(CEcls, g), FocalLoss(BCEobj, g)
+
+            det = model.module.model[-1] if is_parallel(model) else model.model[-1]  # Detect() module
+            self.balance = {3: [4.0, 1.0, 0.4]}.get(det.nl, [4.0, 1.0, 0.25, 0.06, .02])  # P3-P7
+            self.ssi = list(det.stride).index(16) if autobalance else 0  # stride 16 index
+            self.CEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = CEcls, BCEobj, 1.0, h, autobalance
+            for k in 'na', 'nc', 'nl', 'anchors':
+                setattr(self, k, getattr(det, k))
         else:
-            CEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
-        BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
-
-        # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
-        self.cp, self.cn = smooth_BCE(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets
-
-        # Focal loss
-        g = h['fl_gamma']  # focal loss gamma
-        if g > 0:
-            CEcls, BCEobj = FocalLoss(CEcls, g), FocalLoss(BCEobj, g)
-
-        det = model.module.model[-1] if is_parallel(model) else model.model[-1]  # Detect() module
-        self.balance = {3: [4.0, 1.0, 0.4]}.get(det.nl, [4.0, 1.0, 0.25, 0.06, .02])  # P3-P7
-        self.ssi = list(det.stride).index(16) if autobalance else 0  # stride 16 index
-        self.CEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = CEcls, BCEobj, 1.0, h, autobalance
-        for k in 'na', 'nc', 'nl', 'anchors':
-            setattr(self, k, getattr(det, k))
+            device = 'cpu'
+            self.device = device
             
         self.ordinal_cls = ordinal_cls
         if ordinal_cls:
             self.metric = metric
-            cls_num = 4
             if metric == 'learnable':
-                self.learnable_vars = torch.randn(cls_num, cls_num-1, requires_grad=True, device=device)
+                if s is not None:
+                    self.learnable_vars = torch.randn(cls_num, cls_num-1, requires_grad=True, device=device)
+                else:
+                    # sが指定されていない場合はすべて学習する
+                    # 学習安定性のため初期値を指定する
+                    self.learnable_vars = np.eye(cls_num) * 3 - np.ones((cls_num, cls_num))
+                    self.learnable_vars = torch.tensor(self.learnable_vars, dtype=torch.float32, requires_grad=True, device=device)
+                    print('learn all value')
                 self.s = s
             else:
                 self.labels = create_soft_labels(metric=metric, device=device, cls_num=cls_num, peak=peak)
@@ -293,19 +317,22 @@ class ComputeLoss:
 
     def get_learnable_labels(self):
         s = self.s
-        labels = nn.Softmax(dim=0)(self.learnable_vars)
+        
+        if s is not None:
+            # 対角要素にsを追加する，非対角要素に1-sをかける
+            labels = nn.Softmax(dim=0)(self.learnable_vars)
+            temp_labels = []
+            for i, label in enumerate(labels):
+                row = torch.cat([
+                    label[:i] * (1-s),
+                    torch.tensor([s], device=self.device),
+                    label[i:] * (1-s)
+                ])
+                temp_labels.append(row)
+            labels_tensor = torch.stack(temp_labels)
 
-        # 対角要素にsを追加する，非対角要素に1-sをかける
-        temp_labels = []
-        for i, label in enumerate(labels):
-            row = torch.cat([
-                label[:i] * (1-s),
-                torch.tensor([s], device=self.device),
-                label[i:] * (1-s)
-            ])
-            temp_labels.append(row)
-        labels = temp_labels
-
-        labels_tensor = torch.stack(labels)
+        else:
+            # sが指定されていない場合はすべての値を学習する
+            labels_tensor = nn.Softmax(dim=1)(self.learnable_vars)
 
         return labels_tensor.to(self.device)
