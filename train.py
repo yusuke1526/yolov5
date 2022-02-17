@@ -267,7 +267,8 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         metric=opt.metric,
         use_cross_entropy=opt.use_cross_entropy,
         peak=opt.peak,
-        s=opt.s)  # init loss class
+        s=opt.s,
+        cls_num=nc)  # init loss class
     # add learnable_labels to optimizer
     if opt.metric == 'learnable':
         optimizer.param_groups[0]['params'].append(compute_loss.learnable_vars)
@@ -413,6 +414,9 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training -----------------------------------------------------------------------------------------------------
+    if opt.metric == 'learnable':
+        plot_soft_labels(compute_loss.get_soft_labels(), save_dir=save_dir)
+    
     if RANK in [-1, 0]:
         LOGGER.info(f'\n{epoch - start_epoch + 1} epochs completed in {(time.time() - t0) / 3600:.3f} hours.')
         for f in last, best:
@@ -435,8 +439,6 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 
         callbacks.run('on_train_end', last, best, plots, epoch)
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}")
-
-    plot_soft_labels(compute_loss.get_soft_labels(), save_dir=save_dir)
 
     torch.cuda.empty_cache()
     return results
