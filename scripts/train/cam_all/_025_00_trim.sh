@@ -1,6 +1,6 @@
 #!/bin/sh
 
-DATASET=025_00_trim_geo
+DATASET=cam_all
 EPOCHS=2000
 IMG_SIZE=640
 MODEL=yolov5s

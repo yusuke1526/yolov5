@@ -14,4 +14,6 @@ python train.py \
 	--device 0 \
 	--project road_marking_deterioration \
 	--img-size ${IMG_SIZE} \
-	--name ${MODEL}_${EPOCHS}_epochs_${DATASET}_${IMG_SIZE}px \
+	--name ${MODEL}_${EPOCHS}_epochs_${DATASET}_ordinal_L2_peak1.0_${IMG_SIZE}px \
+	--ordinal-cls --metric L2 \
+	--peak 1.0

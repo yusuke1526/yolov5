@@ -1,9 +1,10 @@
 #!/bin/sh
 
-DATASET=025_00_trim_geo
+DATASET=0825AMPM_combined
 EPOCHS=2000
 IMG_SIZE=640
 MODEL=yolov5s
+METRIC=custom
 
 python train.py \
 	--data data/${DATASET}/data.yaml \
@@ -14,4 +15,6 @@ python train.py \
 	--device 0 \
 	--project road_marking_deterioration \
 	--img-size ${IMG_SIZE} \
-	--name ${MODEL}_${EPOCHS}_epochs_${DATASET}_${IMG_SIZE}px \
+	--name ${MODEL}_${EPOCHS}_epochs_${DATASET}_ordinal_${METRIC}_peak1.0_${IMG_SIZE}px \
+	--ordinal-cls --metric ${METRIC} \
+    --peak 1.0
