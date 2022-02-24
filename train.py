@@ -279,7 +279,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
 
-        if opt.metric == 'learnable':
+        if opt.metric == 'learnable' and epoch % 10 == 0:
             plot_soft_labels(compute_loss.get_soft_labels(), epoch=epoch, save_dir=save_dir)
 
         # Update image weights (optional, single-GPU only)
